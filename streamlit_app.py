@@ -1,5 +1,5 @@
 """
-Streamlit GPX Trimmer app
+Streamlit Ride Analysis App
 
 Run with:
     streamlit run streamlit_app.py
@@ -27,41 +27,33 @@ def main() -> None:
 
     # ── Page config ────────────────────────────────────────────────────
     st.set_page_config(
-        page_title="GPX Trimmer",
+        page_title="NR Ride Aanalysis",
         page_icon="🏃",
         layout="centered",
     )
 
     # ── Header / intro ────────────────────────────────────────────────
-    st.title("GPX Trimmer 🏃")
+    st.title("NR Ride Analysis")
 
-    st.markdown("A lightweight tool to trim long pauses from GPX tracks.")
+    st.markdown("A lightweight tool to analyse edurance rides.")
 
     st.markdown(
-        "Some applications, e.g., Komoot, do not differentiate between **moving time** and **elapsed time** when"
-        " the activity is imported as a GPX file. In such cases, the elapsed time remains inflated by"
-        " the time spent paused during the activity, which does not reflect the actual activity statistics,"
-        " especially if a long pause was taken, e.g., during a lunch break."
-    )
-    st.markdown(
-        "This application detects the **long** pauses in your GPX file and removes them, allowing you to obtain a"
-        " more accurate representation of your activity.\n"
-        "* It only shifts the timestamps of the recorded points to remove long pauses; it does not modify other"
-        " GPX data.\n"
-        "* To avoid spikes in the velocity profile, the timestamps of points after a long pause are shifted so that"
-        " the transition speed matches the moving average speed.\n"
-        "* It targets both cases: 1) the GPX tracker paused tracking and there is a large time jump; 2) the GPX"
-        " tracker continued recording during a pause.\n"
-        "* The data acquisition frequency does not matter.\n"
-        "* It provides a short summary of the pauses that are removed."
+        "* I want to use this application analyse my endurance rides. "
+        " Anyone with similar interests can use this app and suggest changes."
+        " I inted to actively spend some of my free time in making this useful"
+        " for me in improving my endurance.\n" 
+        "* This application detects the long brekas in your ride GPX file "
+        " and adds additional details like distance from the start, clickable location and more info\n",
+
+    
     )
     st.markdown("")
     st.markdown(
-        "Feel free to report any bugs or suggestions via [Github Issues](https://github.com/ozhanozen/gpx-trimmer/issues)."
+        "Feel free to report any bugs or suggestions via [Github Issues](https://https://github.com/nageshwar-reddy/nr-ride-analysis/issues)."
     )
     st.markdown("---")
 
-    st.subheader("How to Trim")
+    st.subheader("How to Analyse")
     st.markdown(
         "* Upload either a single **.gpx** file or a **.zip** archive containing many GPX files.\n"
         "* Adjust the **low‑speed threshold** and **minimum pause duration** to define what is considered a"
@@ -104,7 +96,7 @@ def main() -> None:
     )
 
     # ── Process button ────────────────────────────────────────────────
-    if uploaded_file is not None and st.button("Trim"):
+    if uploaded_file is not None and st.button("Analyse"):
         with st.spinner("Processing... this may take a moment ☕"):
             # Save the upload to a temporary file so run_pause_trimmer can work with paths.
             with tempfile.TemporaryDirectory() as tmpdir:
