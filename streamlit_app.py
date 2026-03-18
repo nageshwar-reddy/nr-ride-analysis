@@ -32,38 +32,25 @@ def main() -> None:
         layout="centered",
     )
 
-    # ── Custom CSS for warm, colorful styling ─────────────────────────
+    # ── Custom CSS for layout and spacing optimization ─────────────────
     st.markdown("""
         <style>
-        /* Main background with warm gradient */
-        .stApp {
-            background: linear-gradient(135deg, #FFF8E7 0%, #FFE8CC 100%);
-        }
-
         /* Container padding for better spacing */
         .main {
             padding: 1rem 1rem;
         }
 
-        /* All body text - dark for readability */
-        p, div, span, li, label {
-            color: #2C1810 !important;
-        }
-
-        /* Title styling */
+        /* Title styling - spacing only */
         h1 {
-            color: #D84315 !important;
             text-align: center;
             font-size: 2.5em !important;
             margin-bottom: 0.3em !important;
             margin-top: 0 !important;
-            text-shadow: 2px 2px 4px rgba(0,0,0,0.1);
         }
 
         /* Subtitle styling - optimized spacing */
         .subtitle {
             text-align: center;
-            color: #E65100;
             font-size: 1.1em;
             margin-bottom: 0.8em !important;
             margin-top: 0 !important;
@@ -73,148 +60,79 @@ def main() -> None:
 
         /* Section headers - tighter spacing */
         h3 {
-            color: #D84315 !important;
-            border-bottom: 3px solid #FF8A65;
             padding-bottom: 0.5em;
             margin-top: 0.8em !important;
             margin-bottom: 0.8em !important;
             font-size: 1.4em !important;
         }
 
-        h4 {
-            color: #E65100 !important;
-        }
-
         /* Input labels */
         .stNumberInput label, .stCheckbox label, .stFileUploader label {
-            color: #BF360C !important;
             font-weight: 600 !important;
             font-size: 0.95em !important;
         }
 
-        /* Input fields background */
-        .stNumberInput input {
-            background-color: white !important;
-            color: #2C1810 !important;
-        }
-
         /* File uploader */
         .stFileUploader > div {
-            background-color: #F5F5F5 !important;
-            border: 3px dashed #FF8A65 !important;
             border-radius: 10px;
             padding: 1.5em;
             margin-bottom: 1em !important;
         }
 
         .stFileUploader section {
-            background-color: #F5F5F5 !important;
             border-radius: 10px;
-        }
-
-        .stFileUploader section > div {
-            background-color: #F5F5F5 !important;
         }
 
         /* File uploader button - Browse files */
         .stFileUploader button {
-            background-color: #FF8A65 !important;
-            color: white !important;
             font-weight: bold !important;
             font-size: 1em !important;
             padding: 0.5em 1.5em !important;
             border-radius: 8px !important;
-            border: 2px solid #E64A19 !important;
-        }
-
-        .stFileUploader button:hover {
-            background-color: #FF7043 !important;
-            border-color: #D84315 !important;
-        }
-
-        /* File uploader text */
-        .stFileUploader p, .stFileUploader span {
-            color: #2C1810 !important;
         }
 
         /* Button styling */
         .stButton > button {
-            background: #1B5E20 !important;
-            color: white !important;
             font-size: 1.1em;
             font-weight: bold;
             padding: 0.7em 2em;
             border-radius: 30px;
-            border: 3px solid #F57C00 !important;
-            box-shadow: 0 4px 10px rgba(0,0,0,0.3);
             transition: all 0.3s ease;
             width: auto !important;
         }
 
         .stButton > button:hover {
-            background: #0D3817 !important;
             transform: translateY(-2px);
-            box-shadow: 0 6px 15px rgba(0,0,0,0.4);
-            border-color: #FFB74D !important;
         }
 
         /* Download button styling */
         .stDownloadButton > button {
-            background: linear-gradient(135deg, #2E7D32 0%, #43A047 100%);
-            color: white !important;
             border-radius: 20px;
             font-weight: 600;
             padding: 0.6em 1.5em;
         }
 
-        .stDownloadButton > button:hover {
-            background: linear-gradient(135deg, #1B5E20 0%, #2E7D32 100%);
-        }
-
         /* Instructions expander */
         .streamlit-expanderHeader {
-            background-color: #FFE0B2 !important;
             border-radius: 10px;
             font-weight: 600;
-            color: #BF360C !important;
         }
 
         .streamlit-expanderHeader:hover {
-            background-color: #FFCC80 !important;
         }
 
         /* Expander content text */
         .streamlit-expanderContent {
-            background-color: #FFF3E0;
             border-radius: 0 0 10px 10px;
-            color: #2C1810 !important;
-        }
-
-        .streamlit-expanderContent p,
-        .streamlit-expanderContent li {
-            color: #3E2723 !important;
-        }
-
-        /* Success/Info/Warning boxes */
-        .stSuccess, .stInfo, .stWarning {
-            background-color: white !important;
-            color: #2C1810 !important;
-        }
-
-        /* Code blocks */
-        .stCodeBlock {
-            background-color: #F5F5F5 !important;
         }
 
         /* Horizontal rule */
         hr {
-            border-color: #FFAB91 !important;
             margin: 0.8em 0 !important;
         }
 
         /* Checkbox */
         .stCheckbox {
-            color: #2C1810 !important;
             margin-bottom: 1em !important;
         }
 
