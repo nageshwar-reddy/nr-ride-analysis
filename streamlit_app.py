@@ -40,6 +40,11 @@ def main() -> None:
             background: linear-gradient(135deg, #FFF8E7 0%, #FFE8CC 100%);
         }
 
+        /* Container padding for better spacing */
+        .main {
+            padding: 1rem 1rem;
+        }
+
         /* All body text - dark for readability */
         p, div, span, li, label {
             color: #2C1810 !important;
@@ -49,26 +54,31 @@ def main() -> None:
         h1 {
             color: #D84315 !important;
             text-align: center;
-            font-size: 3em !important;
-            margin-bottom: 0.2em !important;
+            font-size: 2.5em !important;
+            margin-bottom: 0.3em !important;
+            margin-top: 0 !important;
             text-shadow: 2px 2px 4px rgba(0,0,0,0.1);
         }
 
-        /* Subtitle styling */
+        /* Subtitle styling - optimized spacing */
         .subtitle {
             text-align: center;
             color: #E65100;
-            font-size: 1.3em;
-            margin-bottom: 2em;
+            font-size: 1.1em;
+            margin-bottom: 0.8em !important;
+            margin-top: 0 !important;
             font-weight: 500;
+            line-height: 1.4;
         }
 
-        /* Section headers */
+        /* Section headers - tighter spacing */
         h3 {
             color: #D84315 !important;
             border-bottom: 3px solid #FF8A65;
             padding-bottom: 0.5em;
-            margin-top: 1.5em !important;
+            margin-top: 0.8em !important;
+            margin-bottom: 0.8em !important;
+            font-size: 1.4em !important;
         }
 
         h4 {
@@ -79,6 +89,7 @@ def main() -> None:
         .stNumberInput label, .stCheckbox label, .stFileUploader label {
             color: #BF360C !important;
             font-weight: 600 !important;
+            font-size: 0.95em !important;
         }
 
         /* Input fields background */
@@ -89,29 +100,62 @@ def main() -> None:
 
         /* File uploader */
         .stFileUploader > div {
-            background-color: white;
-            border: 2px dashed #FF8A65;
+            background-color: #F5F5F5 !important;
+            border: 3px dashed #FF8A65 !important;
             border-radius: 10px;
-            padding: 1em;
+            padding: 1.5em;
+            margin-bottom: 1em !important;
+        }
+
+        .stFileUploader section {
+            background-color: #F5F5F5 !important;
+            border-radius: 10px;
+        }
+
+        .stFileUploader section > div {
+            background-color: #F5F5F5 !important;
+        }
+
+        /* File uploader button - Browse files */
+        .stFileUploader button {
+            background-color: #FF8A65 !important;
+            color: white !important;
+            font-weight: bold !important;
+            font-size: 1em !important;
+            padding: 0.5em 1.5em !important;
+            border-radius: 8px !important;
+            border: 2px solid #E64A19 !important;
+        }
+
+        .stFileUploader button:hover {
+            background-color: #FF7043 !important;
+            border-color: #D84315 !important;
+        }
+
+        /* File uploader text */
+        .stFileUploader p, .stFileUploader span {
+            color: #2C1810 !important;
         }
 
         /* Button styling */
         .stButton > button {
-            background: linear-gradient(135deg, #FF6F00 0%, #FF8F00 100%);
+            background: #1B5E20 !important;
             color: white !important;
-            font-size: 1.2em;
+            font-size: 1.1em;
             font-weight: bold;
-            padding: 0.75em 2em;
+            padding: 0.7em 2em;
             border-radius: 30px;
-            border: none;
-            box-shadow: 0 4px 10px rgba(255,111,0,0.3);
+            border: 3px solid #F57C00 !important;
+            box-shadow: 0 4px 10px rgba(0,0,0,0.3);
             transition: all 0.3s ease;
+            width: auto !important;
         }
 
         .stButton > button:hover {
-            background: linear-gradient(135deg, #E65100 0%, #FF6F00 100%);
+            background: #0D3817 !important;
             transform: translateY(-2px);
-            box-shadow: 0 6px 15px rgba(255,111,0,0.4);
+            box-shadow: 0 6px 15px rgba(0,0,0,0.4);
+            border-color: #FFB74D !important;
         }
 
         /* Download button styling */
@@ -165,11 +209,54 @@ def main() -> None:
         /* Horizontal rule */
         hr {
             border-color: #FFAB91 !important;
+            margin: 0.8em 0 !important;
         }
 
         /* Checkbox */
         .stCheckbox {
             color: #2C1810 !important;
+            margin-bottom: 1em !important;
+        }
+
+        /* Column spacing optimization */
+        [data-testid="column"] {
+            gap: 1em;
+        }
+
+        /* Markdown spacing optimization */
+        .stMarkdown {
+            margin-bottom: 0.5em !important;
+        }
+
+        /* Responsive design for mobile */
+        @media (max-width: 768px) {
+            h1 {
+                font-size: 2em !important;
+                margin-bottom: 0.4em !important;
+            }
+            
+            .subtitle {
+                font-size: 1em;
+                margin-bottom: 0.6em !important;
+            }
+            
+            h3 {
+                font-size: 1.2em !important;
+                margin-top: 0.6em !important;
+            }
+            
+            .stButton > button {
+                font-size: 1em;
+                padding: 0.6em 1.5em;
+                width: 100% !important;
+            }
+        }
+
+        /* Responsive design for tablets */
+        @media (max-width: 1024px) {
+            .main {
+                padding: 0.8rem 0.5rem;
+            }
         }
         </style>
     """, unsafe_allow_html=True)
@@ -177,8 +264,6 @@ def main() -> None:
     # ── Header ────────────────────────────────────────────────────────
     st.markdown("# 🚴 NR Ride Analysis")
     st.markdown('<p class="subtitle">Analyze your endurance rides with ease</p>', unsafe_allow_html=True)
-
-    st.markdown("")
 
     # ══════════════════════════════════════════════════════════════════
     # INTERACTIVE ELEMENTS - TOP SECTION
@@ -192,8 +277,6 @@ def main() -> None:
         accept_multiple_files=False,
         help="Single GPX file or ZIP containing multiple GPX files"
     )
-
-    st.markdown("")
 
     # ── Parameter inputs ──────────────────────────────────────────────
     st.markdown("### ⚙️ Adjust Settings")
@@ -220,8 +303,6 @@ def main() -> None:
         value=False,
         help="Fetch readable location names for each pause. Requires internet and adds ~1 second per unique location.",
     )
-
-    st.markdown("")
 
     # ── Process button ────────────────────────────────────────────────
     process_clicked = uploaded_file is not None and st.button("🚀 Analyze My Ride", type="primary", use_container_width=True)
