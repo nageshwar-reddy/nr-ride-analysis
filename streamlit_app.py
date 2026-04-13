@@ -250,7 +250,7 @@ def main() -> None:
 
         4. **Click Analyze** ✨
            - Processing summary will appear below
-           - Download your trimmed file and Excel summary
+           - Download the Excel summary with all details
            - Maps links are clickable - copy to your browser to view locations
 
         #### What This App Does
@@ -258,9 +258,9 @@ def main() -> None:
         This tool analyzes endurance rides by detecting long breaks/pauses in your GPX files and provides:
         - Distance from start for each pause
         - Duration of each pause
+        - Per-segment metrics: avg speed, cadence, heart rate, power, elevation gain/loss
         - Clickable location links (if geocoding enabled)
         - Excel summary with all details
-        - Trimmed GPX file(s) for further analysis
 
         Perfect for long-distance cycling, audax rides, and endurance training analysis!
         """)
@@ -300,18 +300,6 @@ def main() -> None:
                     )
                 log_text = log_stream.getvalue()
 
-                # Determine where the trimmed file was written.
-                out_path = in_path.with_stem(in_path.stem + "_trimmed")
-
-                if not out_path.exists():
-                    st.error("Processing completed but the trimmed file could not be found.")
-                    st.code(log_text)
-                    return
-
-                # Read the trimmed GPX/ZIP for download.
-                trimmed_data = out_path.read_bytes()
-                mime = "application/zip" if out_path.suffix.lower() == ".zip" else "application/gpx+xml"
-
                 # Check for Excel summary file
                 excel_path = in_path.with_suffix(".xlsx")
                 excel_data = None
@@ -320,7 +308,7 @@ def main() -> None:
 
         # ── Display results ───────────────────────────────────────────
         st.markdown("### ✅ Analysis Complete!")
-        st.success("Your ride has been analyzed! See the detailed summary below and download your files.")
+        st.success("Your ride has been analyzed! See the detailed summary below.")
 
         if enable_geocoding:
             st.info("💡 **Tip**: Map links in the output are clickable. Copy them to your browser to view the exact pause locations on a map.")
@@ -328,27 +316,15 @@ def main() -> None:
         st.markdown("#### 📊 Processing Summary")
         st.code(log_text, language="text")
 
-        st.markdown("#### 💾 Download Your Files")
-        col1, col2 = st.columns(2)
-        with col1:
+        if excel_data:
+            st.markdown("#### 💾 Download")
             st.download_button(
-                label="📥 Download Trimmed GPX",
-                data=trimmed_data,
-                file_name=out_path.name,
-                mime=mime,
+                label="📊 Download Excel Summary",
+                data=excel_data,
+                file_name=excel_path.name,
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                 use_container_width=True
             )
-        with col2:
-            if excel_data:
-                st.download_button(
-                    label="📊 Download Excel Summary",
-                    data=excel_data,
-                    file_name=excel_path.name,
-                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                    use_container_width=True
-                )
-            else:
-                st.markdown('<div style="padding: 2em; text-align: center; color: #999;">No Excel summary available</div>', unsafe_allow_html=True)
 
 
 if __name__ == "__main__":
