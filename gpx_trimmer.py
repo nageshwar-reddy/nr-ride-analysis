@@ -1,15 +1,18 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 
-import copy
 import datetime
 from pathlib import Path
-from typing import Dict, Tuple, Optional, cast
+from typing import Dict, Optional, cast
 import zipfile
 
 import gpxpy
 from gpxpy.gpx import GPX, GPXTrack, GPXTrackSegment
 from geopy.distance import distance
+
+
+# Garmin TrackPointExtension namespace
+_TPEX_NS = "{http://www.garmin.com/xmlschemas/TrackPointExtension/v1}"
 
 
 def _hms(td: datetime.timedelta) -> str:
@@ -55,6 +58,114 @@ def _geocode_location(latitude: float, longitude: float, geocoder, cache: dict) 
         return "N/A"
 
 
+def _extract_extension_value(point, tag_suffix: str) -> float | None:
+    """Extract a numeric value from gpxtpx TrackPointExtension (hr, cad, pwr, atemp)."""
+    for ext in point.extensions:
+        tag = getattr(ext, "tag", "")
+        if tag.endswith("TrackPointExtension"):
+            for child in ext:
+                if child.tag == f"{_TPEX_NS}{tag_suffix}":
+                    try:
+                        return float(child.text)
+                    except (ValueError, TypeError):
+                        return None
+    return None
+
+
+def _compute_segment_metrics(points: list, min_speed: float) -> dict:
+    """Compute riding metrics for a segment (list of GPX trackpoints).
+
+    Returns dict with: seg_avg_speed_kmh, seg_avg_cadence, seg_avg_hr,
+    seg_avg_power, seg_elev_gain, seg_elev_loss.
+    """
+    empty = {
+        "seg_avg_speed_kmh": None,
+        "seg_avg_cadence": None,
+        "seg_avg_hr": None,
+        "seg_avg_power": None,
+        "seg_elev_gain": 0.0,
+        "seg_elev_loss": 0.0,
+        "seg_distance_km": 0.0,
+        "seg_duration": datetime.timedelta(),
+    }
+    if len(points) < 2:
+        return empty
+
+    total_dist = 0.0
+    moving_dist = 0.0
+    moving_time = 0.0
+    elev_gain = 0.0
+    elev_loss = 0.0
+    cadence_vals: list[float] = []
+    hr_vals: list[float] = []
+    power_vals: list[float] = []
+
+    for i in range(len(points)):
+        # Extract extensions from every point
+        cad = _extract_extension_value(points[i], "cad")
+        if cad is not None and cad > 0:
+            cadence_vals.append(cad)
+        hr = _extract_extension_value(points[i], "hr")
+        if hr is not None and hr > 0:
+            hr_vals.append(hr)
+        pwr = _extract_extension_value(points[i], "pwr")
+        if pwr is not None and pwr > 0:
+            power_vals.append(pwr)
+
+        if i == 0:
+            continue
+
+        prev, curr = points[i - 1], points[i]
+        t_prev = getattr(prev, "time", None)
+        t_curr = getattr(curr, "time", None)
+        if t_prev is None or t_curr is None:
+            continue
+        dt = (t_curr - t_prev).total_seconds()
+        if dt <= 0:
+            continue
+
+        d_m = distance((prev.latitude, prev.longitude), (curr.latitude, curr.longitude)).m
+        v = d_m / dt
+        total_dist += d_m
+
+        if v >= min_speed:
+            moving_dist += d_m
+            moving_time += dt
+
+        # Elevation deltas
+        if prev.elevation is not None and curr.elevation is not None:
+            delta = curr.elevation - prev.elevation
+            if delta > 0:
+                elev_gain += delta
+            else:
+                elev_loss += abs(delta)
+
+    avg_speed = (moving_dist / moving_time * 3.6) if moving_time > 0 else None
+
+    # Segment duration: wall-clock time from first to last point
+    t_first = getattr(points[0], "time", None)
+    t_last = getattr(points[-1], "time", None)
+    seg_duration = (t_last - t_first) if (t_first and t_last) else datetime.timedelta()
+
+    return {
+        "seg_avg_speed_kmh": round(avg_speed, 1) if avg_speed is not None else None,
+        "seg_avg_cadence": round(sum(cadence_vals) / len(cadence_vals)) if cadence_vals else None,
+        "seg_avg_hr": round(sum(hr_vals) / len(hr_vals)) if hr_vals else None,
+        "seg_avg_power": round(sum(power_vals) / len(power_vals)) if power_vals else None,
+        "seg_elev_gain": round(elev_gain, 1),
+        "seg_elev_loss": round(elev_loss, 1),
+        "seg_distance_km": round(total_dist / 1000, 2),
+        "seg_duration": seg_duration,
+    }
+
+
+def _fmt_metric(val, unit: str = "") -> str:
+    """Format a metric value for display, returning 'N/A' if None."""
+    if val is None:
+        return "N/A"
+    return f"{val}{unit}"
+
+
 def _print_pause_summary(stats: dict, *, tz_offset: int = 0, enable_geocoding: bool = False) -> None:
     """Human-readable reporting of pause-trimming operation.
 
@@ -81,8 +192,13 @@ def _print_pause_summary(stats: dict, *, tz_offset: int = 0, enable_geocoding: b
     print(f"Activity date  {stats['activity_start']:%Y-%m-%d}")
     print(f"Start time  {stats['activity_start']:%H:%M:%S} UTC")
     print(" ")
-    print(f"{'Pause':>5}  {'IST Time':>10}  {'Duration':>12}  {'Removed':>12}  "
-          f"{'Drift':>9}  {'Cum.Dist':>10}  {'Relative time':>15}  {'Location':>30}  {'Maps Link':>45}")
+    print(f"{'Seg':>3}  {'Seg Dist':>10}  {'Seg Dur':>12}  {'Cum.Dist':>10}  "
+          f"{'Break Dur':>12}  "
+          f"{'Avg Spd':>9}  {'Avg Cad':>7}  {'Avg HR':>6}  "
+          f"{'Elev+':>7}  {'Elev-':>7}  {'Avg Pwr':>7}  "
+          f"{'Maps Link':>45}  {'Location':>30}  "
+          f"{'IST Time':>10}  {'Relative time':>15}  "
+          f"{'Drift':>9}")
 
     for i, p in enumerate(stats["pauses"], 1):
         # Format Δt as HH:MM:SS (zero-padded, hours may exceed 24)
@@ -99,27 +215,76 @@ def _print_pause_summary(stats: dict, *, tz_offset: int = 0, enable_geocoding: b
         cut = _hms(p["removed"])
         drift = f"{round(p['drift']):>3}m"
 
-        # NEW: Cumulative distance
+        # Cumulative distance
         cum_dist = f"{p.get('cumulative_dist', 0)/1000:.2f} km"
 
-        # NEW: IST time
+        # IST time
         ist_time = _to_ist(p["start"])
 
-        # NEW: Location
+        # Segment duration and distance
+        seg_dur = _hms(p.get("seg_duration", datetime.timedelta()))
+        seg_dist = f"{p.get('seg_distance_km', 0):.2f} km"
+
+        # Location
         if enable_geocoding and geocoder and 'latitude' in p:
             location = _geocode_location(p['latitude'], p['longitude'], geocoder, geo_cache)
             location = location[:28] + ".." if len(location) > 30 else location  # Truncate
         else:
             location = "—"
 
-        # NEW: Google Maps link
+        # Google Maps link
         if 'latitude' in p and 'longitude' in p:
             maps_link = f"https://maps.google.com/?q={p['latitude']},{p['longitude']}"
         else:
             maps_link = "—"
 
-        print(f"{i:>5}  {ist_time:>10}  {gap:>12}  {cut:>12}  {drift:>9}  "
-              f"{cum_dist:>10}  {rel:>15}  {location:>30}  {maps_link}")
+        # Segment metrics
+        spd = _fmt_metric(p.get("seg_avg_speed_kmh"), " km/h")
+        cad = _fmt_metric(p.get("seg_avg_cadence"))
+        hr = _fmt_metric(p.get("seg_avg_hr"))
+        pwr = _fmt_metric(p.get("seg_avg_power"))
+        eg = f"{p.get('seg_elev_gain', 0):.0f}m"
+        el = f"{p.get('seg_elev_loss', 0):.0f}m"
+
+        print(f"{i:>3}  {seg_dist:>10}  {seg_dur:>12}  {cum_dist:>10}  "
+              f"{gap:>12}  "
+              f"{spd:>9}  {cad:>7}  {hr:>6}  "
+              f"{eg:>7}  {el:>7}  {pwr:>7}  "
+              f"{maps_link:>45}  {location:>30}  "
+              f"{ist_time:>10}  {rel:>15}  "
+              f"{drift:>9}")
+
+    # Final segment row
+    fs = stats.get("final_segment", {})
+    if fs:
+        seg_num = len(stats["pauses"]) + 1
+        cum_dist = f"{stats.get('total_distance', 0)/1000:.2f} km"
+
+        if t0 is not None and "activity_end" in stats:
+            rel_td = stats["activity_end"] - t0
+            total = int(round(rel_td.total_seconds()))
+            hh, rem = divmod(total, 3600)
+            mm, ss = divmod(rem, 60)
+            rel = f"{hh:02d}:{mm:02d}:{ss:02d}"
+        else:
+            rel = "—"
+
+        seg_dur = _hms(fs.get("seg_duration", datetime.timedelta()))
+        seg_dist = f"{fs.get('seg_distance_km', 0):.2f} km"
+        spd = _fmt_metric(fs.get("seg_avg_speed_kmh"), " km/h")
+        cad = _fmt_metric(fs.get("seg_avg_cadence"))
+        hr = _fmt_metric(fs.get("seg_avg_hr"))
+        pwr = _fmt_metric(fs.get("seg_avg_power"))
+        eg = f"{fs.get('seg_elev_gain', 0):.0f}m"
+        el = f"{fs.get('seg_elev_loss', 0):.0f}m"
+
+        print(f"{seg_num:>3}  {seg_dist:>10}  {seg_dur:>12}  {cum_dist:>10}  "
+              f"{'—':>12}  "
+              f"{spd:>9}  {cad:>7}  {hr:>6}  "
+              f"{eg:>7}  {el:>7}  {pwr:>7}  "
+              f"{'—':>45}  {'—':>30}  "
+              f"{'Finish':>10}  {rel:>15}  "
+              f"{'—':>9}")
 
     print(" ")
     print(f"Original elapsed time {_hms(stats['orig_elapsed']):>12}")
@@ -171,7 +336,6 @@ def _write_excel_summary(stats: dict, output_path: Path, *, enable_geocoding: bo
 
         # Duration and removed time
         gap_seconds = p["gap"].total_seconds()
-        removed_seconds = p["removed"].total_seconds()
 
         # Formatted duration for display
         duration_formatted = _hms(p["gap"])
@@ -193,21 +357,69 @@ def _write_excel_summary(stats: dict, output_path: Path, *, enable_geocoding: bo
             maps_link = f"https://maps.google.com/?q={p['latitude']},{p['longitude']}"
 
         rows.append({
-            "Pause #": i,
-            "IST Time": ist_time,
-            "Duration": duration_formatted,
-            "Drift (meters)": round(p['drift']),
+            "Segment #": i,
+            "Segment Distance (km)": p.get("seg_distance_km", 0),
+            "Segment Duration": _hms(p.get("seg_duration", datetime.timedelta())),
             "Cumulative Distance (km)": round(cum_dist_km, 2),
+            "Break Duration": duration_formatted,
+            "Avg Speed (km/h)": p.get("seg_avg_speed_kmh") if p.get("seg_avg_speed_kmh") is not None else "N/A",
+            "Avg Cadence": p.get("seg_avg_cadence") if p.get("seg_avg_cadence") is not None else "N/A",
+            "Avg HR": p.get("seg_avg_hr") if p.get("seg_avg_hr") is not None else "N/A",
+            "Elev Gain (m)": p.get("seg_elev_gain", 0),
+            "Elev Loss (m)": p.get("seg_elev_loss", 0),
+            "Avg Power (W)": p.get("seg_avg_power") if p.get("seg_avg_power") is not None else "N/A",
             "Google Maps Link": maps_link,
             "Location": location,
-            "Duration (seconds)": gap_seconds,
+            "IST Time": ist_time,
             "Relative Time": rel_time,
+            "Break Duration (seconds)": gap_seconds,
+            "Drift (meters)": round(p['drift']),
             "Latitude": p.get('latitude', ''),
-            "Longitude": p.get('longitude', '')
+            "Longitude": p.get('longitude', ''),
+        })
+
+    # Final segment row
+    fs = stats.get("final_segment", {})
+    if fs:
+        seg_num = len(stats["pauses"]) + 1
+        cum_dist_km = stats.get("total_distance", 0) / 1000
+
+        if t0 is not None and "activity_end" in stats:
+            rel_td = stats["activity_end"] - t0
+            total = int(round(rel_td.total_seconds()))
+            hh, rem = divmod(total, 3600)
+            mm, ss = divmod(rem, 60)
+            rel_time = f"{hh:02d}:{mm:02d}:{ss:02d}"
+        else:
+            rel_time = "—"
+
+        rows.append({
+            "Segment #": seg_num,
+            "Segment Distance (km)": fs.get("seg_distance_km", 0),
+            "Segment Duration": _hms(fs.get("seg_duration", datetime.timedelta())),
+            "Cumulative Distance (km)": round(cum_dist_km, 2),
+            "Break Duration": "—",
+            "Avg Speed (km/h)": fs.get("seg_avg_speed_kmh") if fs.get("seg_avg_speed_kmh") is not None else "N/A",
+            "Avg Cadence": fs.get("seg_avg_cadence") if fs.get("seg_avg_cadence") is not None else "N/A",
+            "Avg HR": fs.get("seg_avg_hr") if fs.get("seg_avg_hr") is not None else "N/A",
+            "Elev Gain (m)": fs.get("seg_elev_gain", 0),
+            "Elev Loss (m)": fs.get("seg_elev_loss", 0),
+            "Avg Power (W)": fs.get("seg_avg_power") if fs.get("seg_avg_power") is not None else "N/A",
+            "Google Maps Link": "",
+            "Location": "—",
+            "IST Time": "Finish",
+            "Relative Time": rel_time,
+            "Break Duration (seconds)": "—",
+            "Drift (meters)": "—",
+            "Latitude": stats.get("end_latitude", ""),
+            "Longitude": stats.get("end_longitude", ""),
         })
 
     # Create DataFrame
     df = pd.DataFrame(rows)
+
+    # Build column name → 1-based index mapping for styling
+    col_index = {name: idx + 1 for idx, name in enumerate(df.columns)}
 
     # Add summary information as separate sheet data
     summary_data = {
@@ -249,6 +461,20 @@ def _write_excel_summary(stats: dict, output_path: Path, *, enable_geocoding: bo
         center_align = Alignment(horizontal='center', vertical='center')
         left_align = Alignment(horizontal='left', vertical='center')
 
+        # Column indices by name
+        ci_dur_sec = col_index["Break Duration (seconds)"]
+        ci_maps = col_index["Google Maps Link"]
+        center_cols = {
+            col_index["Segment #"],
+            col_index["IST Time"], col_index["Segment Duration"],
+            col_index["Segment Distance (km)"], col_index["Break Duration"],
+            col_index["Drift (meters)"], col_index["Cumulative Distance (km)"],
+            col_index["Break Duration (seconds)"], col_index["Relative Time"],
+            col_index["Avg Speed (km/h)"], col_index["Avg Cadence"],
+            col_index["Avg HR"], col_index["Avg Power (W)"],
+            col_index["Elev Gain (m)"], col_index["Elev Loss (m)"],
+        }
+
         # Format Pauses sheet
         ws_pauses = writer.sheets['Pauses']
 
@@ -260,7 +486,7 @@ def _write_excel_summary(stats: dict, output_path: Path, *, enable_geocoding: bo
             cell.border = border
 
             # Add note to Duration (seconds) header
-            if col_idx == 8:  # Duration (seconds) column (now at position 8)
+            if col_idx == ci_dur_sec:
                 cell.font = Font(bold=True, color='FFFFFF', size=9, italic=True)
                 from openpyxl.comments import Comment
                 cell.comment = Comment("Numeric value for pivot tables and analysis", "GPX Trimmer")
@@ -277,18 +503,17 @@ def _write_excel_summary(stats: dict, output_path: Path, *, enable_geocoding: bo
                 cell.border = border
                 cell.fill = fill
 
-                # Center align specific columns: Pause #, IST Time, Duration, Drift, Cum Dist, Duration(sec), Relative Time
-                if col_idx in [1, 2, 3, 4, 5, 8, 9]:
+                if col_idx in center_cols:
                     cell.alignment = center_align
                 else:
                     cell.alignment = left_align
 
-                # Make Duration (seconds) column subtle - for analysis/pivot
-                if col_idx == 8:  # Duration (seconds) column (now at position 8)
-                    cell.font = Font(color='808080', size=9)  # Gray text, smaller font
+                # Make Duration (seconds) column subtle
+                if col_idx == ci_dur_sec:
+                    cell.font = Font(color='808080', size=9)
 
                 # Format Google Maps Link as hyperlink
-                if col_idx == 6 and cell.value:  # Google Maps Link column (now at position 6)
+                if col_idx == ci_maps and cell.value:
                     cell.hyperlink = cell.value
                     cell.font = Font(color='0563C1', underline='single')
                     cell.value = 'View on Maps'
@@ -373,78 +598,58 @@ def _ts(t: Optional[datetime.datetime]) -> datetime.datetime:
     return cast(datetime.datetime, t)
 
 
-def _trim_track(original: GPX, *, min_speed: float = 0.5, min_pause_duration: int = 600) -> Tuple[str, Dict]:
+def _trim_track(original: GPX, *, min_speed: float = 0.5, min_pause_duration: int = 600) -> Dict:
     """
-    Trim long, low-speed pauses from a GPX track and shift all subsequent
-    timestamps backward so that *elapsed time equals true moving time*.
+    Detect long, low-speed pauses in a GPX track and compute per-segment
+    riding metrics (speed, cadence, heart rate, power, elevation).
+
+    A *segment* is the riding portion between consecutive pauses.
 
     Args:
-        original: The parsed GPX object to trim.
-        min_speed: Speed threshold, in m s⁻¹, below which motion is considered
+        original: The parsed GPX object to analyse.
+        min_speed: Speed threshold, in m s-1, below which motion is considered
             stationary.
         min_pause_duration: Minimum pause length, in seconds, that must be sustained
-            before it is removed.
+            before it is recorded.
 
     Returns:
-        xml: The trimmed GPX, serialized as a single XML string with all
-            namespace information preserved.
         stats: A dictionary containing
-            * ``pauses``        – list of removed-pause dicts
-            * ``removed_time``  – total pause time as ``timedelta``
-            * ``pause_drift``  – total "drift" distance in metres
-            * ``cum_shift``     – cumulative timestamp shift
-            * ``orig_elapsed``  – elapsed time before trimming
-            * ``trimmed_elapsed`` – elapsed time after trimming
+            * ``pauses``          - list of pause dicts (each with segment metrics)
+            * ``removed_time``    - total pause time as ``timedelta``
+            * ``pause_drift``     - total "drift" distance in metres
+            * ``orig_elapsed``    - elapsed time before trimming
+            * ``trimmed_elapsed`` - elapsed time after trimming
+            * ``final_segment``   - metrics dict for the last riding segment
+            * ``total_distance``  - total cumulative distance in metres
+            * ``activity_start``  - start datetime
+            * ``activity_end``    - end datetime
 
     Notes:
         soft pause: *Sequence of points within ONE segment* whose instantaneous speed
             drops below `min_speed`. We keep just enough of the pause to cover the drift
             distance at the *average moving speed so far* and cut the rest.
         hard pause: Gap between two consecutive segments. Same rule: we keep the minimum time
-            needed to traverse the straight- line distance at average speed and trim the excess.
-        Returned `stats["pauses"]` rows therefore show gap ≥ removed ≥ 0  for **both** pause kinds.
+            needed to traverse the straight-line distance at average speed and trim the excess.
+        Returned `stats["pauses"]` rows therefore show gap >= removed >= 0  for **both** pause kinds.
     """
-    # ── boilerplate: deep-copy and bookkeeping ──────────────────────────────
-    trimmed = copy.deepcopy(original)
-    trimmed.tracks = []  # we rebuild tracks from scratch
-
     stats = {  # aggregate totals + pause list
         "pauses": [],  # list[dict]
         "removed_time": datetime.timedelta(),
         "pause_drift": 0.0,
-        "cum_shift": datetime.timedelta(),
     }
 
-    # helper: clone → time-shift → append, keeping timestamps strictly monotonic
-    def _append(dst_seg, src_pt, *, shift: datetime.timedelta, last_time: datetime.datetime | None):
-        new = copy.deepcopy(src_pt)
-        new.time -= shift  # apply global time shift
-
-        # GPX consumers need monotonically increasing timestamps
-        if last_time and new.time <= last_time:
-            new.time = last_time + datetime.timedelta(milliseconds=1)
-        dst_seg.points.append(new)
-        return new.time  # → becomes the next last_time
-
-    cum_shift = datetime.timedelta()  # total time removed so far
-    cumulative_dist = 0.0  # total distance traveled (for pause tracking)
+    cumulative_dist = 0.0  # total distance traveled
+    segment_points: list = []  # trackpoints in current riding segment
 
     # ────────────────────────── iterate over tracks & segments ──────────────
     for src_trk in original.tracks:
-        dst_trk = GPXTrack()
-        dst_trk.name = src_trk.name
-        dst_trk.type = src_trk.type
-        trimmed.tracks.append(dst_trk)
-
         moving_dist = moving_time = 0.0  # for average-speed estimates
 
         for seg_idx, src_seg in enumerate(src_trk.segments):
-            dst_seg = GPXTrackSegment()
-            dst_trk.segments.append(dst_seg)
             if not src_seg.points:
                 continue
 
-            last_written = _append(dst_seg, src_seg.points[0], shift=cum_shift, last_time=None)
+            segment_points.append(src_seg.points[0])
 
             # state for a potential soft pause
             p_start_idx = None  # first low-speed pt index
@@ -456,7 +661,7 @@ def _trim_track(original: GPX, *, min_speed: float = 0.5, min_pause_duration: in
                 prev, curr = pts[i - 1], pts[i]
                 dt = (_ts(curr.time) - _ts(prev.time)).total_seconds()
                 if dt <= 0:  # duplicate / rewind in source
-                    last_written = _append(dst_seg, curr, shift=cum_shift, last_time=last_written)
+                    segment_points.append(curr)
                     continue
 
                 # instantaneous speed between two source points
@@ -481,6 +686,10 @@ def _trim_track(original: GPX, *, min_speed: float = 0.5, min_pause_duration: in
                         keep = p_drift / v_avg if v_avg else 1.0
                         keep = min(keep, gap.total_seconds())  # never > gap
                         cut = gap - datetime.timedelta(seconds=keep)
+
+                        # compute segment metrics before recording pause
+                        seg_metrics = _compute_segment_metrics(segment_points, min_speed)
+
                         # record stats
                         stats["pauses"].append(dict(
                             start=p_start_time,
@@ -489,21 +698,23 @@ def _trim_track(original: GPX, *, min_speed: float = 0.5, min_pause_duration: in
                             drift=p_drift,
                             cumulative_dist=cumulative_dist,
                             latitude=prev.latitude,
-                            longitude=prev.longitude
+                            longitude=prev.longitude,
+                            **seg_metrics,
                         ))
                         stats["removed_time"] += cut
                         stats["pause_drift"] += p_drift
-                        stats["cum_shift"] += cut
-                        cum_shift += cut
-                    else:  # pause too short → keep intact
-                        for j in range(p_start_idx, i + 1):
-                            last_written = _append(dst_seg, pts[j], shift=cum_shift, last_time=last_written)
+
+                        # start new riding segment
+                        segment_points = []
+                    else:  # pause too short → keep intact, add points back
+                        for j in range(p_start_idx, i):
+                            segment_points.append(pts[j])
 
                     p_start_idx = p_start_time = None
                     p_drift = 0.0
 
                 # point is normal moving data
-                last_written = _append(dst_seg, curr, shift=cum_shift, last_time=last_written)
+                segment_points.append(curr)
                 moving_dist += d_m
                 moving_time += dt
                 cumulative_dist += d_m
@@ -517,6 +728,8 @@ def _trim_track(original: GPX, *, min_speed: float = 0.5, min_pause_duration: in
                     keep = min(keep, gap.total_seconds())
                     cut = gap - datetime.timedelta(seconds=keep)
 
+                    seg_metrics = _compute_segment_metrics(segment_points, min_speed)
+
                     stats["pauses"].append(dict(
                         start=p_start_time,
                         gap=gap,
@@ -524,15 +737,16 @@ def _trim_track(original: GPX, *, min_speed: float = 0.5, min_pause_duration: in
                         drift=p_drift,
                         cumulative_dist=cumulative_dist,
                         latitude=pts[p_start_idx - 1].latitude,
-                        longitude=pts[p_start_idx - 1].longitude
+                        longitude=pts[p_start_idx - 1].longitude,
+                        **seg_metrics,
                     ))
                     stats["removed_time"] += cut
                     stats["pause_drift"] += p_drift
-                    stats["cum_shift"] += cut
-                    cum_shift += cut
+
+                    segment_points = []
                 else:  # short pause → keep
                     for j in range(p_start_idx, len(pts)):
-                        last_written = _append(dst_seg, pts[j], shift=cum_shift, last_time=last_written)
+                        segment_points.append(pts[j])
 
             # ── HARD pause (gap between segments) ───────────────────────
             nxt = seg_idx + 1
@@ -547,6 +761,8 @@ def _trim_track(original: GPX, *, min_speed: float = 0.5, min_pause_duration: in
                     keep = min(keep, dt_gap)
                     cut = datetime.timedelta(seconds=dt_gap - keep)
 
+                    seg_metrics = _compute_segment_metrics(segment_points, min_speed)
+
                     stats["pauses"].append(dict(
                         start=last_pt.time,
                         gap=datetime.timedelta(seconds=dt_gap),
@@ -554,23 +770,30 @@ def _trim_track(original: GPX, *, min_speed: float = 0.5, min_pause_duration: in
                         drift=d_gap,
                         cumulative_dist=cumulative_dist,
                         latitude=last_pt.latitude,
-                        longitude=last_pt.longitude
+                        longitude=last_pt.longitude,
+                        **seg_metrics,
                     ))
                     stats["removed_time"] += cut
                     stats["pause_drift"] += d_gap
-                    stats["cum_shift"] += cut
-                    cum_shift += cut
+
+                    segment_points = []
 
     # ── overall elapsed times ───────────────────────────────────────────
     stats["activity_start"] = _ts(original.tracks[0].segments[0].points[0].time)
-    stats["orig_elapsed"] = _ts(original.tracks[-1].segments[-1].points[-1].time) - _ts(
-        original.tracks[0].segments[0].points[0].time
-    )
-    stats["trimmed_elapsed"] = _ts(trimmed.tracks[-1].segments[-1].points[-1].time) - _ts(
-        trimmed.tracks[0].segments[0].points[0].time
-    )
+    stats["activity_end"] = _ts(original.tracks[-1].segments[-1].points[-1].time)
+    stats["orig_elapsed"] = stats["activity_end"] - stats["activity_start"]
+    stats["trimmed_elapsed"] = stats["orig_elapsed"] - stats["removed_time"]
+    stats["total_distance"] = cumulative_dist
 
-    return trimmed.to_xml(prettyprint=True), stats
+    # End point coordinates (for final segment row)
+    last_pt = original.tracks[-1].segments[-1].points[-1]
+    stats["end_latitude"] = last_pt.latitude
+    stats["end_longitude"] = last_pt.longitude
+
+    # Final segment metrics (riding after the last pause)
+    stats["final_segment"] = _compute_segment_metrics(segment_points, min_speed)
+
+    return stats
 
 
 def run_pause_trimmer(
@@ -581,34 +804,30 @@ def run_pause_trimmer(
     enable_geocoding: bool = False,
 ) -> None:
     """
-    Trim every GPX track in *input_path*.
+    Analyse every GPX track in *input_path* for pauses and segment metrics.
 
     Args:
         input_path: Either a single ``.gpx`` file or a ``.zip`` containing many GPX
             files (any sub-folder layout is preserved).
-        min_speed : Low-speed threshold in m s⁻¹ (default 0.1).
-        min_pause_duration : Minimum pause duration in seconds before it is removed (default 600).
+        min_speed : Low-speed threshold in m s-1 (default 0.1).
+        min_pause_duration : Minimum pause duration in seconds before it is recorded (default 240).
         enable_geocoding : Enable reverse geocoding to show location names (default False).
     """
     input_path = Path(input_path)
 
     # ── helper for one GPX blob ────────────────────────────────────
-    def _trim_and_report(xml: str, label: str) -> tuple[str, dict]:
+    def _analyse_and_report(xml: str, label: str) -> dict:
         gpx = gpxpy.parse(xml)
-        xml_out, stats = _trim_track(gpx, min_speed=min_speed, min_pause_duration=min_pause_duration)
+        stats = _trim_track(gpx, min_speed=min_speed, min_pause_duration=min_pause_duration)
 
         print(f"\n=== {label} ===\n")
         _print_pause_summary(stats, tz_offset=0, enable_geocoding=enable_geocoding)
-        return xml_out, stats
+        return stats
 
     # ── single GPX on disk ────────────────────────────────────────
     if input_path.suffix.lower() != ".zip":
         xml_in = input_path.read_text(encoding="utf-8", errors="replace")
-        xml_out, stats = _trim_and_report(xml_in, input_path.name)
-
-        out_file = input_path.with_stem(input_path.stem + "_trimmed")
-        out_file.write_text(xml_out, encoding="utf-8")
-        print(f"\nCreated {out_file.name}")
+        stats = _analyse_and_report(xml_in, input_path.name)
 
         # Write Excel summary
         excel_file = input_path.with_suffix(".xlsx")
@@ -617,11 +836,8 @@ def run_pause_trimmer(
         return
 
     # ── ZIP archive ───────────────────────────────────────────────
-    out_zip = input_path.with_stem(input_path.stem + "_trimmed")
-    trimmed_count = 0
-    excel_files = []
-
-    with zipfile.ZipFile(input_path) as zin, zipfile.ZipFile(out_zip, "w", compression=zipfile.ZIP_DEFLATED) as zout:
+    with zipfile.ZipFile(input_path) as zin:
+        gpx_count = 0
 
         # walk all entries
         for member in zin.infolist():
@@ -632,23 +848,16 @@ def run_pause_trimmer(
             if p.suffix.lower() != ".gpx" or p.name.startswith("._"):
                 continue
 
-            # read → trim → write back
             xml_in = zin.read(member).decode("utf-8", errors="replace")
-            xml_out, stats = _trim_and_report(xml_in, p.name)
-
-            out_name = p.with_stem(p.stem + "_trimmed").as_posix()
-            zout.writestr(out_name, xml_out.encode("utf-8"))
-            trimmed_count += 1
+            stats = _analyse_and_report(xml_in, p.name)
 
             # Write Excel summary for this GPX file
             excel_file = input_path.parent / f"{p.stem}.xlsx"
             _write_excel_summary(stats, excel_file, enable_geocoding=enable_geocoding)
-            excel_files.append(excel_file.name)
+            gpx_count += 1
 
-    if trimmed_count:
-        print(f"\nCreated {out_zip.name} with {trimmed_count} trimmed track(s).")
-        if excel_files:
-            print(f"Created {len(excel_files)} Excel summary file(s): {', '.join(excel_files)}")
+    if gpx_count:
+        print(f"\nProcessed {gpx_count} GPX file(s).")
     else:
         print("No .gpx files found in the archive.")
 
@@ -669,7 +878,7 @@ if __name__ == "__main__":
         "--min_pause_duration",
         default=240,
         type=int,
-        help="Minimum pause duration in seconds; pauses longer than this will be trimmed.",
+        help="Minimum pause duration in seconds; pauses longer than this will be detected.",
     )
     parser.add_argument(
         "--enable_geocoding",
