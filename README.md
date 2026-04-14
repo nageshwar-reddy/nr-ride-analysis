@@ -1,53 +1,91 @@
-# Ride Analysis 🏃 [![Streamlit app](https://static.streamlit.io/badges/streamlit_badge_black_white.svg)](https://gpx-trimmer.streamlit.app/)
+# NR Ride Analysis 🚴 [![Streamlit App](https://static.streamlit.io/badges/streamlit_badge_black_white.svg)](https://nr-ride-analysis.streamlit.app/)
 
-For the original gpx trimmer applicaiton please refer to https://github.com/ozhanozen/gpx-trimmer
+A Streamlit web app to analyse endurance rides by detecting long pauses in GPX files and generating a detailed Excel summary with per-segment metrics.
 
-I want to use this application analyse my endurance rides. Anyone with similar interests can use this app and suggest changes. I inted to actively spend some of my free time in making this useful for me in improving my endurance. 
+---
 
-This application detects the **long** brekas in your ride GPX file and adds additional details like distance from the start, clickable location and more info,
+## What It Does
 
+Upload a GPX file from your ride and the app will:
 
-## How to Run
+- **Detect pauses** — identifies stops longer than a configurable duration
+- **Per-segment metrics** — for each riding segment between pauses:
+  - Average speed, cadence, heart rate, and power
+  - Elevation gain and loss
+  - Segment distance and duration
+- **Cumulative distance** — distance from the start at each pause
+- **Timing** — IST time and relative time from ride start for each pause
+- **Location links** — clickable Google Maps link for every pause location
+- **Reverse geocoding** *(optional)* — human-readable place names for each pause
+- **Excel summary** — downloadable `.xlsx` with all details, formatted and ready to use
 
-**Option 1: Running online:**
+---
 
-Go to the [Streamlit app link](https://nr-ride-analysis.streamlit.app/)
- and follow the instructions.
+## How to Use
 
-**Option 2: Running locally:**
+**Online (recommended):**
 
-Clone this repository and set up the environment:
+Go to [nr-ride-analysis.streamlit.app](https://nr-ride-analysis.streamlit.app/) — no installation needed.
+
+1. Upload a `.gpx` file or a `.zip` archive containing multiple GPX files
+2. Adjust settings if needed:
+   - **Low-speed threshold** *(default: 0.1 m/s)* — speed below which movement is treated as a pause
+   - **Minimum pause duration** *(default: 120 seconds)* — shortest pause to detect
+3. Optionally enable **reverse geocoding** for location names
+4. Click **Analyze My Ride**
+5. Download the Excel summary
+
+---
+
+## Running Locally
+
 ```bash
-git clone https://github.com/ozhanozen/nr-ride-analysis
+git clone https://github.com/nageshwar-reddy/nr-ride-analysis
 cd nr-ride-analysis
 pip install -r requirements.txt
-```
-
-Option 2A: Run it as a local streamlit app:
-```bash
 streamlit run streamlit_app.py
 ```
 
-Option 2B: Run it from the command-line:
-```bash
-./nr-ride-analysis input_file_path --min_speed MIN_SPEED --min_pause_duration MIN_PAUSE_DURATION
-```
-or
-```bash
-python nr-ride-analysis input_file_path --min_speed MIN_SPEED --min_pause_duration MIN_PAUSE_DURATION
-```
+---
+
+## Excel Output Columns
+
+| Column | Description |
+|---|---|
+| Segment # | Segment sequence number |
+| Segment Distance (km) | Distance covered in this segment |
+| Segment Duration | Riding time for this segment |
+| Seg. End IST | IST clock time at segment end / pause start |
+| Break Duration | Duration of the pause |
+| Avg Speed (km/h) | Average moving speed for the segment |
+| Avg Cadence | Average cadence (rpm) |
+| Avg HR | Average heart rate (bpm) |
+| Elev Gain (m) | Elevation gained in the segment |
+| Elev Loss (m) | Elevation lost in the segment |
+| Avg Power (W) | Average power output |
+| Cumulative Distance (km) | Total distance from ride start |
+| Seg. End Relative | Time elapsed from ride start (HH:MM:SS) |
+| Location | Reverse-geocoded place name *(if enabled)* |
+| Google Maps Link | Clickable link to pause location |
+| Break Duration (seconds) | Numeric duration for analysis |
+| Drift (meters) | Distance drifted during the pause |
+| Latitude / Longitude | Coordinates of the pause |
 
 ---
 
-## How to analyze
+## Dependencies
 
-* Input either a single **.gpx** file or a **.zip** archive containing many GPX files.
-* Adjust the **low‑speed threshold** and **minimum pause duration** to define what is considered a long pause.
-
+- [gpxpy](https://github.com/tkrajina/gpxpy) — GPX parsing
+- [geopy](https://github.com/geopy/geopy) — distance calculations and reverse geocoding
+- [streamlit](https://streamlit.io/) — web app framework
+- [pandas](https://pandas.pydata.org/) — data handling
+- [openpyxl](https://openpyxl.readthedocs.io/) — Excel file generation
+- [google-cloud-storage](https://cloud.google.com/storage/docs/reference/libraries) — cloud storage
 
 ---
 
-Feel free to report any bugs or suggestions via [GitHub Issues](https://github.com/ozhanozen/nr-ride-analysis/issues).
+## Feedback & Contributions
 
- 
+Found a bug or have a suggestion? Please open a [GitHub Issue](https://github.com/nageshwar-reddy/nr-ride-analysis/issues).
 
+Happy riding! 🚴‍♂️💨

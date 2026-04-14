@@ -3,3 +3,4 @@ geopy
 streamlit
 pandas
 openpyxl
+google-cloud-storage

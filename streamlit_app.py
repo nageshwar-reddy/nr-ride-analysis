@@ -13,6 +13,7 @@ duration used to identify long pauses.
 from __future__ import annotations
 
 import contextlib
+import datetime
 import io
 import tempfile
 from pathlib import Path
@@ -20,6 +21,64 @@ from pathlib import Path
 import streamlit as st
 
 from gpx_trimmer import run_pause_trimmer
+
+
+_IST = datetime.timezone(datetime.timedelta(hours=5, minutes=30))
+
+
+def _upload_to_gcs(local_path: Path, original_filename: str) -> tuple[str, str]:
+    """Upload Excel file to GCS.
+
+    Returns (blob_name, gcs_console_url) on success, raises on failure.
+    Filename is prefixed with IST timestamp in YYYYMMDDHHmmSS format.
+    """
+    from google.cloud import storage
+    from google.oauth2 import service_account
+
+    credentials = service_account.Credentials.from_service_account_info(
+        dict(st.secrets["gcs"]),
+        scopes=["https://www.googleapis.com/auth/cloud-platform"],
+    )
+    bucket_name = st.secrets["gcs_config"]["bucket_name"]
+    client = storage.Client(
+        credentials=credentials,
+        project=st.secrets["gcs"]["project_id"],
+    )
+    bucket = client.bucket(bucket_name)
+
+    now_ist = datetime.datetime.now(_IST)
+    timestamp = now_ist.strftime("%Y%m%d%H%M%S")
+    stem = Path(original_filename).stem
+    blob_name = f"analyses/{now_ist:%Y-%m-%d}/{timestamp}_{stem}.xlsx"
+
+    blob = bucket.blob(blob_name)
+    blob.upload_from_filename(str(local_path))
+
+    console_url = (
+        f"https://console.cloud.google.com/storage/browser/_details/"
+        f"{bucket_name}/{blob_name}?project={st.secrets['gcs']['project_id']}"
+    )
+    return blob_name, console_url
+
+
+def _send_email(subject: str, body: str) -> None:
+    """Send a notification email to the admin address via Gmail SMTP."""
+    import smtplib
+    from email.mime.text import MIMEText
+
+    smtp_user = st.secrets["email"]["smtp_user"]
+    smtp_password = st.secrets["email"]["smtp_password"]
+    recipient = st.secrets["email"]["recipient"]
+
+    msg = MIMEText(body)
+    msg["Subject"] = subject
+    msg["From"] = smtp_user
+    msg["To"] = recipient
+
+    with smtplib.SMTP("smtp.gmail.com", 587) as server:
+        server.starttls()
+        server.login(smtp_user, smtp_password)
+        server.send_message(msg)
 
 
 def main() -> None:
@@ -241,7 +300,7 @@ def main() -> None:
 
         2. **Configure parameters** 🎛️
            - **Low-speed threshold**: Speed below which movement is considered a pause (default: 0.1 m/s)
-           - **Minimum pause duration**: Only pauses longer than this will be detected (default: 240 seconds/4 minutes)
+           - **Minimum pause duration**: Only pauses longer than this will be detected (default: 120 seconds/2 minutes)
 
         3. **Optional: Enable geocoding** 🗺️
            - Get readable location names for each pause
@@ -269,6 +328,10 @@ def main() -> None:
         st.markdown("""
         This is a personal project to analyze endurance rides. Anyone with similar interests
         can use this app and suggest improvements.
+
+        **Data & Privacy**
+        Analyzed results are saved anonymously for research and improvement purposes.
+        No personally identifiable information is collected.
 
         **Feedback & Suggestions**
         Found a bug or have an idea? Please share via [GitHub Issues](https://github.com/nageshwar-reddy/nr-ride-analysis/issues)
@@ -305,6 +368,33 @@ def main() -> None:
                 excel_data = None
                 if excel_path.exists():
                     excel_data = excel_path.read_bytes()
+
+                    # Upload to GCS while the temp file still exists on disk
+                    try:
+                        blob_name, console_url = _upload_to_gcs(excel_path, uploaded_file.name)
+                        try:
+                            _send_email(
+                                subject=f"✅ Ride Analysis Saved: {uploaded_file.name}",
+                                body=(
+                                    f"File uploaded successfully to Google Cloud Storage.\n\n"
+                                    f"Original file : {uploaded_file.name}\n"
+                                    f"Stored as     : {blob_name}\n\n"
+                                    f"View in GCS console:\n{console_url}"
+                                ),
+                            )
+                        except Exception:
+                            pass  # email failure is silent
+                    except Exception as upload_err:
+                        try:
+                            _send_email(
+                                subject=f"❌ Ride Analysis Upload Failed: {uploaded_file.name}",
+                                body=(
+                                    f"Cloud upload failed for file: {uploaded_file.name}\n\n"
+                                    f"Error:\n{upload_err}"
+                                ),
+                            )
+                        except Exception:
+                            pass  # email failure is silent
 
         # ── Display results ───────────────────────────────────────────
         st.markdown("### ✅ Analysis Complete!")
