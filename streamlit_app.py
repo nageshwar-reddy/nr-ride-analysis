@@ -211,7 +211,7 @@ def main() -> None:
     with col2:
         min_pause = st.number_input(
             "⏱️ Minimum pause duration (seconds)",
-            value=240,
+            value=120,
             step=10,
             help="Only pauses longer than this will be detected.",
         )

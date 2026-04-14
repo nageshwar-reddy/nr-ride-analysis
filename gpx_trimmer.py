@@ -192,12 +192,11 @@ def _print_pause_summary(stats: dict, *, tz_offset: int = 0, enable_geocoding: b
     print(f"Activity date  {stats['activity_start']:%Y-%m-%d}")
     print(f"Start time  {stats['activity_start']:%H:%M:%S} UTC")
     print(" ")
-    print(f"{'Seg':>3}  {'Seg Dist':>10}  {'Seg Dur':>12}  {'Cum.Dist':>10}  "
-          f"{'Break Dur':>12}  "
+    print(f"{'Seg':>3}  {'Seg Dist':>10}  {'Seg Dur':>12}  {'Seg End IST':>11}  {'Break Dur':>12}  "
           f"{'Avg Spd':>9}  {'Avg Cad':>7}  {'Avg HR':>6}  "
           f"{'Elev+':>7}  {'Elev-':>7}  {'Avg Pwr':>7}  "
-          f"{'Maps Link':>45}  {'Location':>30}  "
-          f"{'IST Time':>10}  {'Relative time':>15}  "
+          f"{'Cum.Dist':>10}  "
+          f"{'Seg End Rel':>15}  {'Location':>30}  {'Maps Link':>45}  "
           f"{'Drift':>9}")
 
     for i, p in enumerate(stats["pauses"], 1):
@@ -246,12 +245,11 @@ def _print_pause_summary(stats: dict, *, tz_offset: int = 0, enable_geocoding: b
         eg = f"{p.get('seg_elev_gain', 0):.0f}m"
         el = f"{p.get('seg_elev_loss', 0):.0f}m"
 
-        print(f"{i:>3}  {seg_dist:>10}  {seg_dur:>12}  {cum_dist:>10}  "
-              f"{gap:>12}  "
+        print(f"{i:>3}  {seg_dist:>10}  {seg_dur:>12}  {ist_time:>11}  {gap:>12}  "
               f"{spd:>9}  {cad:>7}  {hr:>6}  "
               f"{eg:>7}  {el:>7}  {pwr:>7}  "
-              f"{maps_link:>45}  {location:>30}  "
-              f"{ist_time:>10}  {rel:>15}  "
+              f"{cum_dist:>10}  "
+              f"{rel:>15}  {location:>30}  {maps_link:>45}  "
               f"{drift:>9}")
 
     # Final segment row
@@ -278,12 +276,11 @@ def _print_pause_summary(stats: dict, *, tz_offset: int = 0, enable_geocoding: b
         eg = f"{fs.get('seg_elev_gain', 0):.0f}m"
         el = f"{fs.get('seg_elev_loss', 0):.0f}m"
 
-        print(f"{seg_num:>3}  {seg_dist:>10}  {seg_dur:>12}  {cum_dist:>10}  "
-              f"{'—':>12}  "
+        print(f"{seg_num:>3}  {seg_dist:>10}  {seg_dur:>12}  {'Finish':>11}  {'—':>12}  "
               f"{spd:>9}  {cad:>7}  {hr:>6}  "
               f"{eg:>7}  {el:>7}  {pwr:>7}  "
-              f"{'—':>45}  {'—':>30}  "
-              f"{'Finish':>10}  {rel:>15}  "
+              f"{cum_dist:>10}  "
+              f"{rel:>15}  {'—':>30}  {'—':>45}  "
               f"{'—':>9}")
 
     print(" ")
@@ -360,7 +357,7 @@ def _write_excel_summary(stats: dict, output_path: Path, *, enable_geocoding: bo
             "Segment #": i,
             "Segment Distance (km)": p.get("seg_distance_km", 0),
             "Segment Duration": _hms(p.get("seg_duration", datetime.timedelta())),
-            "Cumulative Distance (km)": round(cum_dist_km, 2),
+            "Seg. End IST": ist_time,
             "Break Duration": duration_formatted,
             "Avg Speed (km/h)": p.get("seg_avg_speed_kmh") if p.get("seg_avg_speed_kmh") is not None else "N/A",
             "Avg Cadence": p.get("seg_avg_cadence") if p.get("seg_avg_cadence") is not None else "N/A",
@@ -368,10 +365,10 @@ def _write_excel_summary(stats: dict, output_path: Path, *, enable_geocoding: bo
             "Elev Gain (m)": p.get("seg_elev_gain", 0),
             "Elev Loss (m)": p.get("seg_elev_loss", 0),
             "Avg Power (W)": p.get("seg_avg_power") if p.get("seg_avg_power") is not None else "N/A",
-            "Google Maps Link": maps_link,
+            "Cumulative Distance (km)": round(cum_dist_km, 2),
+            "Seg. End Relative": rel_time,
             "Location": location,
-            "IST Time": ist_time,
-            "Relative Time": rel_time,
+            "Google Maps Link": maps_link,
             "Break Duration (seconds)": gap_seconds,
             "Drift (meters)": round(p['drift']),
             "Latitude": p.get('latitude', ''),
@@ -397,7 +394,7 @@ def _write_excel_summary(stats: dict, output_path: Path, *, enable_geocoding: bo
             "Segment #": seg_num,
             "Segment Distance (km)": fs.get("seg_distance_km", 0),
             "Segment Duration": _hms(fs.get("seg_duration", datetime.timedelta())),
-            "Cumulative Distance (km)": round(cum_dist_km, 2),
+            "Seg. End IST": "Finish",
             "Break Duration": "—",
             "Avg Speed (km/h)": fs.get("seg_avg_speed_kmh") if fs.get("seg_avg_speed_kmh") is not None else "N/A",
             "Avg Cadence": fs.get("seg_avg_cadence") if fs.get("seg_avg_cadence") is not None else "N/A",
@@ -405,10 +402,10 @@ def _write_excel_summary(stats: dict, output_path: Path, *, enable_geocoding: bo
             "Elev Gain (m)": fs.get("seg_elev_gain", 0),
             "Elev Loss (m)": fs.get("seg_elev_loss", 0),
             "Avg Power (W)": fs.get("seg_avg_power") if fs.get("seg_avg_power") is not None else "N/A",
-            "Google Maps Link": "",
+            "Cumulative Distance (km)": round(cum_dist_km, 2),
+            "Seg. End Relative": rel_time,
             "Location": "—",
-            "IST Time": "Finish",
-            "Relative Time": rel_time,
+            "Google Maps Link": "",
             "Break Duration (seconds)": "—",
             "Drift (meters)": "—",
             "Latitude": stats.get("end_latitude", ""),
@@ -466,10 +463,10 @@ def _write_excel_summary(stats: dict, output_path: Path, *, enable_geocoding: bo
         ci_maps = col_index["Google Maps Link"]
         center_cols = {
             col_index["Segment #"],
-            col_index["IST Time"], col_index["Segment Duration"],
+            col_index["Seg. End IST"], col_index["Segment Duration"],
             col_index["Segment Distance (km)"], col_index["Break Duration"],
             col_index["Drift (meters)"], col_index["Cumulative Distance (km)"],
-            col_index["Break Duration (seconds)"], col_index["Relative Time"],
+            col_index["Break Duration (seconds)"], col_index["Seg. End Relative"],
             col_index["Avg Speed (km/h)"], col_index["Avg Cadence"],
             col_index["Avg HR"], col_index["Avg Power (W)"],
             col_index["Elev Gain (m)"], col_index["Elev Loss (m)"],
